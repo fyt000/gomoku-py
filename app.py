@@ -19,7 +19,16 @@ def iswinner():
     data = request.json
     print(data)
     response = {}
-    response["winner"] = gomoku.check_winner(data["board"])
+    response["winner"] = gomoku.Gomoku(data["board"]).check_winner()
+    return json.dumps(response)
+
+@app.route('/api/getnextmove/', methods=['POST'])
+def get_next_move():
+    data = request.json
+    (x,y) = gomoku.Gomoku(data["board"]).get_next_move(data["cur"])
+    response = {}
+    response["x"]=x
+    response["y"]=y
     return json.dumps(response)
 
 

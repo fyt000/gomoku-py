@@ -36,6 +36,26 @@ function calculateWinner(squares) {
     });
 }
 
+function makeNextMove(squares) {
+   return fetch('http://localhost:5000/api/getnextmove/', {
+    method: 'post',
+    body: JSON.stringify({
+      board: squares,
+      cur: 2
+    }),
+    mode: 'cors',
+    headers: new Headers({
+      'Content-Type': 'application/json'
+    })
+  })
+  .then((response) => {
+    return response.json()
+  })
+  .catch((error) => {
+      console.error(error);
+  });
+}
+
 class Board extends React.Component {
   // constructor() {
   //   super();
@@ -97,10 +117,25 @@ class Game extends React.Component {
       xIsNext: !this.state.xIsNext,
       blocked: true
     });
+
     calculateWinner(squares).then((theWinner) => {
       this.setState({
-        blocked: false,
         winner: theWinner
+      });
+    })
+
+    makeNextMove(squares).then((responseJson) => {
+      const history = this.state.history.slice(0, this.state.stepNumber + 1);
+      const current = history[history.length - 1];
+      const squares = current.squares.slice();
+      squares[responseJson.x * 15 + responseJson.y] = this.state.xIsNext ? 1 : 2;
+      this.setState({
+        history: history.concat([{
+          squares: squares
+        }]),
+        stepNumber: history.length,
+        xIsNext: !this.state.xIsNext,
+        blocked: false
       });
     })
   }
@@ -108,8 +143,8 @@ class Game extends React.Component {
   retract() {
     if (this.stepNumber !== 0) {
       this.setState({
-        stepNumber: this.state.stepNumber - 1,
-        xIsNext: ((this.state.stepNumber - 1) % 2) ? false : true,
+        stepNumber: this.state.stepNumber - 2,
+        xIsNext: ((this.state.stepNumber - 2) % 2) ? false : true,
       });
     }
   }
