@@ -230,15 +230,14 @@ class Gomoku(object):
                 if self.__get_p(x,y) == 0:
                     self.__put_p(x,y,cur)
                     score = self.count_board(cur)
-                    score -= self.count_board(opponent)
                     self.__put_p(x,y,opponent)
                     score += self.count_board(opponent)
                     l.append((score,x,y))
                     self.__put_p(x,y,0)
 
         l=sorted(l,key=lambda x: x[0],reverse=True)
-        print(l[:3])
-        return l[:3]
+        print(l[:10])
+        return l[:10]
 
     def mini_max(self,depth,maximizing,cur,opponent):
         if depth==0 or not self.check_winner()==0:
