@@ -3,8 +3,8 @@ import time
 import numpy as np
 from functools import reduce
 
-
-global_eval_dict={}
+global_row_eval={}
+global_sub_row_eval={}
 
 class Gomoku(object):
 
@@ -13,8 +13,8 @@ class Gomoku(object):
 
         if patterns is None:
             self.patterns={}
-            self.add_p('_O_',3)
-            self.add_p('_OX',1)
+            self.add_p('_O_',1)
+            self.add_p('_OX',2)
             self.add_p('_OO_',20)
             self.add_p('_O_O_',20)
             self.add_p('_OOX',3)
@@ -35,6 +35,7 @@ class Gomoku(object):
             (lambda x, y: max(x, len(y))), self.patterns.keys(), 0)
         self.size_x = size_x or 15
         self.size_y = size_y or 15
+
 
     def add_p(self,p,v):
         self.patterns[p]=v
@@ -130,32 +131,6 @@ class Gomoku(object):
 
         dp[idx] = cur_max
         return cur_max
-
-    # # this does not work. but anyway
-    # def row_backtrack(self, row, dp, idx, counts):
-    #     if len(row) < 3:
-    #         return
-    #     if row[0] == '_' and row[1] == '_':
-    #         self.row_backtrack(row[1:], dp, idx + 1, counts)
-    #         return
-    #     cur_val = dp[idx]
-
-    #     if row.startswith('X'):
-    #         if cur_val == dp[idx+1]:
-    #              self.row_backtrack(row[1:],dp,idx+1,counts)
-    #              return
-
-    #     #fix to check that pattern matches first
-    #     for p, p_eval in self.patterns.items():
-    #         if (row.startswith(p) or row.startswith(p[::-1])) and cur_val == dp[idx + len(p)] + p_eval:
-    #             counts[p] += 1
-    #             self.row_backtrack(row[len(p):],dp,idx+len(p),counts)
-    #             break
-    #         if p[::-1].startswith('X') and not row[0] == 'X':
-    #             if ('X'+row).startswith(p) and cur_val == dp[idx + len(p) - 1] + p_eval:
-    #                 counts[p] += 1
-    #                 self.row_backtrack(row[len(p)-1:], dp, idx+len(p)-1,counts)
-    #                 break
         
 
     def init_dp(self,row):
@@ -173,8 +148,13 @@ class Gomoku(object):
     # dynamic programming using heuristic to select the best for a row
     # aggregate for all rows of different directions
     def count_consec_row(self, row):
-        if row in global_eval_dict:
-            return global_eval_dict[row]
+
+        if row in global_sub_row_eval:
+            return global_sub_row_eval[row]
+
+        if not 'O' in row:
+            global_sub_row_eval[row] = 0
+            return 0
 
         dp_forward = self.init_dp(row)
         dp_backward = dp_forward[:]
@@ -183,17 +163,22 @@ class Gomoku(object):
         forward = self.row_dper(row,dp_forward,0)
         backward = self.row_dper(row[::-1],dp_backward,0)
         ret = max(forward,backward)
-        global_eval_dict[row] = ret
+        global_sub_row_eval[row] = ret
         return ret
 
 
     def count_row(self, row):
+        if row in global_row_eval:
+            return global_row_eval[row]
+
         pieces_list = row.split('X')
         val = 0
         for pieces in pieces_list:
             if len(pieces) < 5:
                 continue
             val += self.count_consec_row(pieces)
+
+        global_row_eval[row] = val
         return val
 
 
@@ -234,31 +219,58 @@ class Gomoku(object):
         return val
 
     def get_next_move(self,cur):
-        print("global eval size ",len(global_eval_dict))
         opponent = 2 if cur == 1 else 1
-        max_score = -999999
-        cur_x=-1
-        cur_y=-1
+        (v,x,y) = self.mini_max(2,True,cur,opponent)
+        return (x,y)
+
+    def get_best_moves(self,cur,opponent):
+        l=[]
         for x in range(0,self.size_x):
             for y in range(0,self.size_y):
                 if self.__get_p(x,y) == 0:
                     self.__put_p(x,y,cur)
                     score = self.count_board(cur)
-                    if score > self.patterns['_OOOOO_']:
-                        return (x, y)
+                    score -= self.count_board(opponent)
                     self.__put_p(x,y,opponent)
-                    score += self.count_board(opponent)*1.1
-                    if score > max_score:
-                        max_score = score
-                        cur_x = x
-                        cur_y = y
+                    score += self.count_board(opponent)
+                    l.append((score,x,y))
                     self.__put_p(x,y,0)
-        return (cur_x,cur_y)
+
+        l=sorted(l,key=lambda x: x[0],reverse=True)
+        print(l[:3])
+        return l[:3]
+
+    def mini_max(self,depth,maximizing,cur,opponent):
+        if depth==0 or not self.check_winner()==0:
+            return (self.count_board(cur) - self.count_board(opponent),-1,-1)
+        
+        best_x = -1
+        best_y = -1
+        best_val = 0
+
+        if maximizing:
+            best_val = -999999
+            #limit to the center
+            for (s,x,y) in self.get_best_moves(cur,opponent):
+                self.__put_p(x,y,cur)
+                (v,b_x,b_y) = self.mini_max(depth-1,False,cur,opponent)
+                if v > best_val:
+                    best_x = x
+                    best_y = y
+                    best_val = v
+                self.__put_p(x,y,0)
+        else:
+            best_val = 999999
+            for (s,x,y) in self.get_best_moves(opponent,cur):
+                self.__put_p(x,y,opponent)
+                (v,b_x,b_y) = self.mini_max(depth-1,True,cur,opponent)
+                if v < best_val:
+                    best_x = x
+                    best_y = y
+                    best_val = v
+                self.__put_p(x,y,0)
+
+        return (best_val,best_x,best_y)
 
 
-    # def score_board(self):
-    #     score = 0
-    #     for v in [1, 2]:
-    #         score += self.evaluator(self.count_board(v)) * \
-    #             (-1 if v == 1 else 1)
-    #     return score
+
