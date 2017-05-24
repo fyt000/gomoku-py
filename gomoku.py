@@ -14,22 +14,22 @@ class Gomoku(object):
         if patterns is None:
             self.patterns={}
             self.add_p('_O_',1)
-            self.add_p('_OX',2)
+            self.add_p('_O',2)
             self.add_p('_OO_',20)
             self.add_p('_O_O_',20)
-            self.add_p('_OOX',3)
+            self.add_p('_OO',3)
             self.add_p('_OOO_',1500)
-            self.add_p('_OOOX',20)
-            self.add_p('_O_OOX',20)
-            self.add_p('_OOOO_',3000)
+            self.add_p('_OOO',20)
+            self.add_p('_O_OO',20)
+            self.add_p('_OOOO_',8000)
             self.add_p('_OO_OO_',2500)
             self.add_p('_OOO_O_',20)
-            self.add_p('_OOOOX',20)
-            self.add_p('_OO_OOX',20)
-            self.add_p('_OOO_OX',20)
-            self.add_p('XOOOOOX',100000)
+            self.add_p('_OOOO',20)
+            self.add_p('_OO_OO',20)
+            self.add_p('_OOO_O',20)
+            self.add_p('OOOOO',100000)
             self.add_p('_OOOOO_',100000)
-            self.add_p('_OOOOOX',100000)
+            self.add_p('_OOOOO',100000)
 
         self.max_pattern_len = reduce(
             (lambda x, y: max(x, len(y))), self.patterns.keys(), 0)
@@ -105,17 +105,15 @@ class Gomoku(object):
         saved_val = dp[idx]
         if not saved_val == -1:
             return saved_val
+
         # skip empty spaces
         if row[0] == '_' and row[1] == '_':
-            cur_max = self.row_dper(row[1:], dp, idx + 1)
+            return self.row_dper(row[1:], dp, idx + 1)
+
         for p, p_eval in self.patterns.items():
             rp = p[::-1]
             r_len = len(p)
             r_row = row
-            #the 2nd condition is to check that this is not the first call
-            if rp[0] == 'X' and not row[0] == 'X':
-                r_row = 'X' + r_row
-                r_len -= 1
             if r_row.startswith(rp):
                 # print("detected rp",r_row,rp)
                 cur_val = p_eval + \
@@ -125,9 +123,10 @@ class Gomoku(object):
                 cur_val = p_eval + \
                     self.row_dper(row[len(p):], dp, idx + len(p))
                 cur_max = max(cur_val, cur_max)
-        if row.startswith('X'):
-            cur_val = self.row_dper(row[1:],dp,idx+1)
-            cur_max = max(cur_val, cur_max)
+
+        #move on, do nothing
+        cur_val = self.row_dper(row[1:],dp,idx+1)
+        cur_max = max(cur_val, cur_max)
 
         dp[idx] = cur_max
         return cur_max
@@ -158,7 +157,7 @@ class Gomoku(object):
 
         dp_forward = self.init_dp(row)
         dp_backward = dp_forward[:]
-        row = 'X' + row + 'X'
+
         #print(row)
         forward = self.row_dper(row,dp_forward,0)
         backward = self.row_dper(row[::-1],dp_backward,0)
