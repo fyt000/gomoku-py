@@ -3,7 +3,6 @@ import time
 import numpy as np
 from functools import reduce
 
-global_row_eval = {}
 global_sub_row_eval = {}
 
 
@@ -14,26 +13,27 @@ class Gomoku(object):
 
         if patterns is None:
             self.patterns = {}
-            self.add_p(0b1010, 1)
-            self.add_p(0b101, 2) #0b101
-            self.add_p(0b10110, 20) #0b10110
-            self.add_p(0b101010, 20) #0b101010
-            self.add_p(0b1011, 3) #0b1011
-            self.add_p(0b101110, 1500) #0b101110
-            self.add_p(0b10111, 20) #0b10111
-            self.add_p(0b101011, 20) #0b101011
-            self.add_p(0b1011110, 8000) #0b1011110
-            self.add_p(0b10110110, 1500) #0b10110110
-            self.add_p(0b10111010, 20) #0b10111010
-            self.add_p(0b101111, 20) #0b101111
-            self.add_p(0b1011011, 20) #0b1011011
-            self.add_p(0b1011101, 20) #0b1011101
-            self.add_p(0b111111, 100000) #0b111111
-            self.add_p(0b10111110, 100000) #0b10111110
-            self.add_p(0b1011111, 100000) #0b1011111
+            self.add_p(0b1010, 1) # _O_
+            self.add_p(0b101, 2)  #  _OX
+            self.add_p(0b10110, 20)  # _OO_
+            self.add_p(0b101010, 20)  # _O_O_
+            self.add_p(0b1011, 3)  # _OOX
+            self.add_p(0b101110, 1500)  # _OOO_
+            self.add_p(0b10111, 20)  # _OOOX
+            self.add_p(0b1011010, 1500) # _OO_O_
+            self.add_p(0b101011, 20)  # _O_OOX
+            self.add_p(0b1011110, 8000)  # _OOOO_
+            self.add_p(0b10110110, 1500)  # _OO_OO_
+            self.add_p(0b10111010, 20)  # _OOO_O_
+            self.add_p(0b101111, 20)  # _OOOOX
+            self.add_p(0b1011011, 20)  # _OO_OOX
+            self.add_p(0b1011101, 20)  # _OOO_OX
+            self.add_p(0b111111, 90000)  # XOOOOOX
+            self.add_p(0b10111110, 100000)  # _OOOOO_
+            self.add_p(0b1011111, 90000)  # _OOOOOX
 
         self.max_pattern_len = reduce(
-            (lambda x, y: max(x, y.bit_length()-1)), self.patterns.keys(), 0)
+            (lambda x, y: max(x, y.bit_length() - 1)), self.patterns.keys(), 0)
         self.size_x = size_x or 15
         self.size_y = size_y or 15
 
@@ -50,6 +50,9 @@ class Gomoku(object):
         return self.board[self.__get_idx(x, y)]
 
     def __put_p(self, x, y, p):
+        self.board[self.__get_idx(x, y)] = p
+
+    def put_p(self, x, y, p):
         self.board[self.__get_idx(x, y)] = p
 
     def __empty_p(self):
@@ -133,23 +136,25 @@ class Gomoku(object):
 
         # skip empty spaces
         if not self.row_is_set(row, 0, row_len) and not self.row_is_set(row, 1, row_len):
-            return self.row_dper(self.row_splice(row,1,row_len), dp, idx + 1)
+            return self.row_dper(self.row_splice(row, 1, row_len), dp, idx + 1)
 
         for p, p_eval in self.patterns.items():
             p_len = self.row_length(p)
             rp = self.row_reverse(p)
-            if self.row_startswith(row,rp):
+            if self.row_startswith(row, rp):
                 # print("detected rp",r_row,rp)
                 cur_val = p_eval + \
-                    self.row_dper(self.row_splice(row,p_len,row_len), dp, idx + p_len)
+                    self.row_dper(self.row_splice(
+                        row, p_len, row_len), dp, idx + p_len)
                 cur_max = max(cur_val, cur_max)
-            if self.row_startswith(row,p):
+            if self.row_startswith(row, p):
                 cur_val = p_eval + \
-                    self.row_dper(self.row_splice(row,p_len,row_len), dp, idx + p_len)
+                    self.row_dper(self.row_splice(
+                        row, p_len, row_len), dp, idx + p_len)
                 cur_max = max(cur_val, cur_max)
 
         # move on, do nothing
-        cur_val = self.row_dper(self.row_splice(row,1,row_len), dp, idx + 1)
+        cur_val = self.row_dper(self.row_splice(row, 1, row_len), dp, idx + 1)
         cur_max = max(cur_val, cur_max)
 
         dp[idx] = cur_max
@@ -203,15 +208,17 @@ class Gomoku(object):
         cur_score = 0
         for i in range(0, max(self.size_x, self.size_y)):
             if x < 0 or x >= self.size_x or y < 0 or y >= self.size_y:
-                return cur_score
+                break
             p = self.__get_p(x, y)
+            x += dx
+            y += dy
             if p == opponent:
                 cur_score += self.count_consec_row(row)
                 row = self.__empty_p()
                 continue
             row = self.row_add_p(row, 0 if p == 0 else 1)
-            x += dx
-            y += dy
+        cur_score += self.count_consec_row(row)
+
         return cur_score
 
     def count_board(self, cur):
@@ -242,55 +249,86 @@ class Gomoku(object):
 
     def get_next_move(self, cur):
         opponent = 2 if cur == 1 else 1
-        (v, x, y) = self.mini_max(2, True, cur, opponent)
+        (v, x, y) = self.alphabeta(2, -9999999, 9999999, True, 2, 1)
         return (x, y)
 
     def get_best_moves(self, cur, opponent):
-        l = []
+        min_x = math.floor(self.size_x / 2)
+        max_x = math.ceil(self.size_x / 2)
+        min_y = math.floor(self.size_y / 2)
+        max_y = math.ceil(self.size_y / 2)
         for x in range(0, self.size_x):
             for y in range(0, self.size_y):
+                if self.__get_p(x, y) != 0:
+                    min_x = min(x, min_x)
+                    max_x = max(x, max_x)
+                    min_y = min(y, min_y)
+                    max_y = max(y, max_y)
+        min_x -= 2
+        max_x += 2
+        min_y -= 2
+        max_y += 2
+        min_x = max(0, min_x)
+        max_x = min(self.size_x, max_x)
+        min_y = max(0, min_y)
+        max_y = min(self.size_y, max_y)
+
+        l = []
+        for x in range(min_x, max_x):
+            for y in range(min_y, max_y):
                 if self.__get_p(x, y) == 0:
-                    t = time.process_time()
+                    #t = time.process_time()
                     self.__put_p(x, y, cur)
                     score = self.count_board(cur)
+                    score -= self.count_board(opponent)
                     self.__put_p(x, y, opponent)
                     score += self.count_board(opponent)
                     l.append((score, x, y))
                     self.__put_p(x, y, 0)
-                    print("took ",time.process_time() - t)
+                    #print("took ", time.process_time() - t)
 
         l = sorted(l, key=lambda x: x[0], reverse=True)
         print(l[:10])
         return l[:10]
 
-    def mini_max(self, depth, maximizing, cur, opponent):
-        if depth == 0 or not self.check_winner() == 0:
-            return (self.count_board(cur) - self.count_board(opponent), -1, -1)
+    def alphabeta(self, depth, alpha, beta, maximizing, cur, opponent):
+
+        winner = self.check_winner()
+
+        if depth == 0 or winner != 0:
+            return (self.count_board(2) - self.count_board(1), -1, -1)
 
         best_x = -1
         best_y = -1
         best_val = 0
 
         if maximizing:
-            best_val = -999999
-            # limit to the center
+            best_val = -9999999
             for (s, x, y) in self.get_best_moves(cur, opponent):
                 self.__put_p(x, y, cur)
-                (v, b_x, b_y) = self.mini_max(depth - 1, False, cur, opponent)
+                (v, b_x, b_y) = self.alphabeta(
+                    depth - 1, alpha, beta, False, cur, opponent)
                 if v > best_val:
                     best_x = x
                     best_y = y
                     best_val = v
                 self.__put_p(x, y, 0)
+                alpha = max(alpha, best_val)
+                if beta <= alpha:
+                    break
         else:
-            best_val = 999999
+            best_val = 9999999
             for (s, x, y) in self.get_best_moves(opponent, cur):
                 self.__put_p(x, y, opponent)
-                (v, b_x, b_y) = self.mini_max(depth - 1, True, cur, opponent)
+                (v, b_x, b_y) = self.alphabeta(
+                    depth - 1, alpha, beta, True, cur, opponent)
                 if v < best_val:
                     best_x = x
                     best_y = y
                     best_val = v
                 self.__put_p(x, y, 0)
+                beta = min(beta, best_val)
+                if beta <= alpha:
+                    break
 
         return (best_val, best_x, best_y)

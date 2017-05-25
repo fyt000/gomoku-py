@@ -17,7 +17,6 @@ def hello():
 @app.route('/api/iswinner/', methods=['GET', 'POST'])
 def iswinner():
     data = request.json
-    print(data)
     response = {}
     response["winner"] = gomoku.Gomoku(data["board"]).check_winner()
     return json.dumps(response)
