@@ -121,22 +121,34 @@ class Game extends React.Component {
     calculateWinner(squares).then((theWinner) => {
       this.setState({
         winner: theWinner
-      });
-    })
-
-    makeNextMove(squares).then((responseJson) => {
-      const history = this.state.history.slice(0, this.state.stepNumber + 1);
-      const current = history[history.length - 1];
-      const squares = current.squares.slice();
-      squares[responseJson.x * 15 + responseJson.y] = this.state.xIsNext ? 1 : 2;
-      this.setState({
-        history: history.concat([{
-          squares: squares
-        }]),
-        stepNumber: history.length,
-        xIsNext: !this.state.xIsNext,
-        blocked: false
-      });
+      })
+      if (theWinner === 0) {
+        makeNextMove(squares).then((responseJson) => {
+          const history = this.state.history.slice(0, this.state.stepNumber + 1);
+          const current = history[history.length - 1];
+          const squares = current.squares.slice();
+          squares[responseJson.x * 15 + responseJson.y] = this.state.xIsNext ? 1 : 2;
+          this.setState({
+            history: history.concat([{
+              squares: squares
+            }]),
+            stepNumber: history.length,
+            xIsNext: !this.state.xIsNext,
+            blocked: true
+          });
+          calculateWinner(squares).then((theWinner) => {
+            this.setState({
+              winner: theWinner,
+              blocked: false
+            })
+          });
+        })
+      }
+      else {
+        this.setState({
+          blocked: false
+        })
+      }
     })
   }
 
