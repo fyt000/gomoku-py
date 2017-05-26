@@ -33,11 +33,12 @@ function calculateWinner(squares) {
     })
     .catch((error) => {
       console.error(error);
+      return 0;
     });
 }
 
 function makeNextMove(squares) {
-   return fetch('http://localhost:5000/api/getnextmove/', {
+  return fetch('http://localhost:5000/api/getnextmove/', {
     method: 'post',
     body: JSON.stringify({
       board: squares,
@@ -48,12 +49,12 @@ function makeNextMove(squares) {
       'Content-Type': 'application/json'
     })
   })
-  .then((response) => {
-    return response.json()
-  })
-  .catch((error) => {
+    .then((response) => {
+      return response.json()
+    })
+    .catch((error) => {
       console.error(error);
-  });
+    });
 }
 
 class Board extends React.Component {
@@ -179,7 +180,7 @@ class Game extends React.Component {
 
     let status;
     if (this.state.winner !== 0) {
-      status = 'Winner: player ' + (this.state.winner);
+      status = 'Winner: player ' + (this.state.winner === 1 ? 'Black' : 'White');
     } else {
       status = 'Next player: ' + (this.state.xIsNext ? 'Black' : 'White');
     }
