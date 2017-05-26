@@ -8,6 +8,8 @@ import json
 
 global_sub_row_eval = [{}, {}]
 # ok this might not work
+# try LRUcache?
+# And multitthread?
 global_board_cache = [{}, {}]
 cache_hit = 0
 
@@ -226,12 +228,7 @@ class Gomoku(object):
 
         forward = self.row_dper(row, dp_forward, 0, etype)
 
-        backward_row = self.__empty_p()
-        for i in range(0, rlen):
-            if row & (1 << i) == 1:
-                backward_row = (backward_row << 1) & 1
-            else:
-                backward_row = (backward_row << 1)
+        backward_row = self.row_reverse(row)
         backward = self.row_dper(backward_row, dp_backward, 0, etype)
 
         ret = max(forward, backward)
@@ -398,7 +395,7 @@ class Gomoku(object):
         winner = self.check_winner()
         if winner != 0:
             print("termination detected")
-            return (self.count_boardx(cur, 0) - self.count_boardx(opponent, 0), -2, -2)
+            return (self.count_boardx(cur, 0) - self.count_boardx(opponent, 1), -2, -2)
 
         if depth == 0:
             return (self.count_boardx(cur, 0) - self.count_boardx(opponent, 1), -1, -1)
@@ -421,6 +418,7 @@ class Gomoku(object):
                 self.__put_p(x, y, 0)
                 alpha = max(alpha, best_val)
                 if beta <= alpha:
+                    print("pruned")
                     break
         else:
             best_val = 9999999
@@ -435,6 +433,7 @@ class Gomoku(object):
                 self.__put_p(x, y, 0)
                 beta = min(beta, best_val)
                 if beta <= alpha:
+                    print("pruned")
                     break
             #print("black ",best_val,best_x,best_y)
 
