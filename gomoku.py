@@ -4,15 +4,17 @@ import numpy as np
 from functools import reduce
 import os.path
 import json
+from cachetools import LRUCache
 
 
 global_sub_row_eval = [{}, {}]
-# ok this might not work
-# try LRUcache?
-# And multitthread?
-global_board_cache = [{}, {}]
-cache_hit = 0
-
+# this doesn't help much I feel, removed
+global_row_cache = LRUCache(maxsize=100000)
+global_board_cache = LRUCache(maxsize=10000)
+# fourth layer of caching, plan to implement multithreaded stuff with this
+transposition =LRUCache(maxsize=1000)
+board_cache_hit = 0
+row_cache_hit = 0
 
 # make it write/read to disk for faster start up
 def precompute_gobal_sub_row():
@@ -52,6 +54,7 @@ class Gomoku(object):
         self.size_x = size_x or 15
         self.size_y = size_y or 15
         self.board = np.array(board_list).reshape(self.size_x, self.size_y)
+        #print(self.board)
         # self.board = board_list[:]
 
         if patterns is None:
@@ -65,14 +68,14 @@ class Gomoku(object):
             self.add_p(0b10111, (20, 20))  # _OOOX
             self.add_p(0b1011010, (1500, 10000))  # _OO_O_
             self.add_p(0b101011, (20, 20))  # _O_OOX
-            self.add_p(0b1011110, (10000, 1000000))  # _OOOO_
+            self.add_p(0b1011110, (10000, 10000000))  # _OOOO_
             self.add_p(0b10110110, (1500, 10000))  # _OO_OO_
             self.add_p(0b10111010, (20, 10000))  # _OOO_O_
             self.add_p(0b101111, (150, 10000))  # _OOOOX
             self.add_p(0b1011011, (20, 10000))  # _OO_OOX
             self.add_p(0b1011101, (20, 10000))  # _OOO_OX
             self.add_p(0b111111, (8000000, 8000000))  # XOOOOOX
-            self.add_p(0b10111110, (1000000, 1000000))  # _OOOOO_
+            self.add_p(0b10111110, (10000000, 10000000))  # _OOOOO_
             self.add_p(0b1011111, (8000000, 8000000))  # _OOOOOX
 
         self.max_pattern_len = reduce(
@@ -149,7 +152,7 @@ class Gomoku(object):
         backward_row = self.__empty_p()
         for i in range(0, rlen - 1):
             if (row & (1 << i)) != 0:
-                backward_row = (backward_row << 1) | 1
+                backward_row = (backward_row << 1) ^ 1
             else:
                 backward_row = (backward_row << 1)
         return backward_row
@@ -158,6 +161,7 @@ class Gomoku(object):
     # 2^15 combinations, seems resonable
     def row_dper(self, row, dp, idx, etype):
         # print(row)
+        #print(bin(row), idx)
         cur_max = 0
         row_len = self.row_length(row)
         if row_len < 3:
@@ -169,6 +173,7 @@ class Gomoku(object):
 
         # skip empty spaces
         if not self.row_is_set(row, 0, row_len) and not self.row_is_set(row, 1, row_len):
+            #print(bin(row),"will be skipping first 0")
             return self.row_dper(self.row_splice(row, 1, row_len), dp, idx + 1, etype)
 
         for p, p_eval_tuple in self.patterns.items():
@@ -176,12 +181,13 @@ class Gomoku(object):
             p_len = self.row_length(p)
             rp = self.row_reverse(p)
             if self.row_startswith(row, rp):
-                # print("detected rp",r_row,rp)
+                #print("detected rp",bin(row),bin(rp))
                 cur_val = p_eval + \
                     self.row_dper(self.row_splice(
                         row, p_len, row_len), dp, idx + p_len, etype)
                 cur_max = max(cur_val, cur_max)
             if self.row_startswith(row, p):
+                #print("detected p",bin(row),bin(p))
                 cur_val = p_eval + \
                     self.row_dper(self.row_splice(
                         row, p_len, row_len), dp, idx + p_len, etype)
@@ -197,10 +203,10 @@ class Gomoku(object):
 
     def init_dp(self, row):
         # length of row
-        rlen = row.bit_length()  # good, life just got easier
-        dp = [-1] * self.max_pattern_len
-        for i in range(0, rlen):
-            dp.append(rlen)
+        rlen = self.row_length(row)
+        dp = [-1] * (rlen)
+        for i in range(0, self.max_pattern_len):
+            dp.append(0)
         return (dp, rlen)
 
     # new matching algorithm
@@ -208,7 +214,8 @@ class Gomoku(object):
     # aggregate for all rows of different directions
     def count_consec_row(self, row, etype):
         global global_sub_row_eval
-        global cache_hit
+        global_row_cache
+        global board_cache_hit
 
         if row <= (1 << 5):
             return 0
@@ -255,7 +262,17 @@ class Gomoku(object):
         return cur_score
 
     def count_rowy(self, cur, etype, row_arr):
+        global global_row_cache
+        global row_cache_hit
+        
         opponent = 2 if cur == 1 else 1
+
+        rowkey = tuple(row_arr) + (cur,etype)
+        # if rowkey in global_row_cache:
+        #     #print("this too is useful")
+        #     row_cache_hit += 1
+        #     return global_row_cache[rowkey]
+
         row = self.__empty_p()
         cur_score = 0
         for p in row_arr:
@@ -265,18 +282,21 @@ class Gomoku(object):
                 continue
             row = self.row_add_p(row, 0 if p == 0 else 1)
         cur_score += self.count_consec_row(row, etype)
+
+        #global_row_cache[rowkey] = cur_score
+
         return cur_score
 
     def count_boardx(self, cur, etype):
         global global_board_cache
-        global cache_hit
+        global board_cache_hit
 
         # dumb hashing, whatever
 
-        board_hash = tuple(map(tuple, self.board)) + (cur,)
-        if board_hash in global_board_cache[etype]:
-            cache_hit += 1
-            return global_board_cache[etype][board_hash]
+        board_hash = tuple(map(tuple, self.board)) + (cur,etype)
+        if board_hash in global_board_cache:
+            board_cache_hit += 1
+            return global_board_cache[board_hash]
 
         val = 0
 
@@ -295,7 +315,7 @@ class Gomoku(object):
             val += self.count_rowy(cur, etype,
                                    np.rot90(self.board).diagonal(-i))
 
-        global_board_cache[etype][board_hash] = val
+        global_board_cache[board_hash] = val
 
         return val
 
@@ -330,19 +350,22 @@ class Gomoku(object):
         return val
 
     def get_next_move(self, cur):
-        global cache_hit
+        global board_cache_hit
         global global_board_cache
+        global row_cache_hit
 
         # refresh...memory is actually an issue
         # it'll be great if I can save every table in memory...
-        global_board_cache = [{}, {}]
-        cache_hit = 0
+        #global_board_cache = [{}, {}]
+        board_cache_hit = 0
+        row_cache_hit = 0
         opponent = 2 if cur == 1 else 1
         (v, x, y) = self.alphabeta(3, -9999999, 9999999, True, 2, 1)
         if x == -1 and y == -1:  # lost already
             (v, x, y) = self.get_best_moves(
                 cur, opponent)[0]  # just do whatever
-        print(cache_hit)
+        print("board cache hit",board_cache_hit)
+        print("row cache hit", row_cache_hit)
         return (x, y)
 
     def get_best_moves(self, cur, opponent):
@@ -389,16 +412,24 @@ class Gomoku(object):
         return l[:10]
 
     def alphabeta(self, depth, alpha, beta, maximizing, cur, opponent):
+        global transposition
+        
+        board_hash = tuple(map(tuple, self.board)) + (maximizing,)
+        if board_hash in transposition:
+            print("board evaluated")
+            return transposition[board_hash]
 
-        # TOOD: find ways speed up termination, some moves are obvious, and
-        # should be made without hesitation
         winner = self.check_winner()
         if winner != 0:
             print("termination detected")
-            return (self.count_boardx(cur, 0) - self.count_boardx(opponent, 1), -2, -2)
+            ret = (self.count_boardx(cur, 0) - self.count_boardx(opponent, 1), -1, -1)
+            transposition[board_hash] = ret
+            return ret
 
         if depth == 0:
-            return (self.count_boardx(cur, 0) - self.count_boardx(opponent, 1), -1, -1)
+            ret = (self.count_boardx(cur, 0) - self.count_boardx(opponent, 1), -1, -1)
+            transposition[board_hash] = ret
+            return ret
 
         best_x = -1
         best_y = -1
@@ -407,7 +438,7 @@ class Gomoku(object):
         if maximizing:
             best_val = -9999999
             for (s, x, y) in self.get_best_moves(cur, opponent):
-                # print("white",x,y)
+                #print("white",x,y)
                 self.__put_p(x, y, cur)
                 (v, b_x, b_y) = self.alphabeta(
                     depth - 1, alpha, beta, False, cur, opponent)
@@ -418,7 +449,7 @@ class Gomoku(object):
                 self.__put_p(x, y, 0)
                 alpha = max(alpha, best_val)
                 if beta <= alpha:
-                    print("pruned")
+                    #print("pruned")
                     break
         else:
             best_val = 9999999
@@ -433,8 +464,11 @@ class Gomoku(object):
                 self.__put_p(x, y, 0)
                 beta = min(beta, best_val)
                 if beta <= alpha:
-                    print("pruned")
+                    #print("pruned")
                     break
             #print("black ",best_val,best_x,best_y)
+
+        
+        transposition[board_hash] = (best_val, best_x, best_y)
 
         return (best_val, best_x, best_y)
