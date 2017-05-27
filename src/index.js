@@ -91,9 +91,12 @@ class Board extends React.Component {
 class Game extends React.Component {
   constructor() {
     super();
+    const squares = Array(15 *15).fill(0);
+    squares[112] = 2;
     this.state = {
       history: [{
-        squares: Array(15 * 15).fill(0),
+        // squares: Array(15 * 15).fill(0),
+        squares: squares
       }],
       stepNumber: 0,
       xIsNext: true,
