@@ -5,30 +5,45 @@ from functools import reduce
 import os.path
 import json
 from cachetools import LRUCache
+from multiprocessing import Process
+import multiprocessing
+import logging
 
-
+#logging.basicConfig(filename='example.log',level=logging.DEBUG)
 global_sub_row_eval = [{}, {}]
 # this doesn't help much I feel, removed
 global_row_cache = LRUCache(maxsize=100000)
 global_board_cache = LRUCache(maxsize=10000)
 # fourth layer of caching, plan to implement multithreaded stuff with this
-transposition =LRUCache(maxsize=1000)
+global_transposition = LRUCache(maxsize=1000)
 board_cache_hit = 0
 row_cache_hit = 0
+manager = multiprocessing.Manager()
+transposition_tbl = manager.dict()
 
 # make it write/read to disk for faster start up
+
+
 def precompute_gobal_sub_row():
     global global_sub_row_eval
 
+    str_key_eval={}
     if os.path.isfile("sub_row_dump0.json") and os.path.isfile("sub_row_dump1.json"):
         with open('sub_row_dump0.json', 'r') as f:
             try:
-                global_sub_row_eval[0] = json.load(f)
+                str_key_eval = json.load(f)
+                #oh well, integral keys are dumped as strings...
+                for k,v in str_key_eval.items():
+                    global_sub_row_eval[0][int(k)] = v
+
             except ValueError:
                 global_sub_row_eval[0] = {}
+
         with open('sub_row_dump1.json', 'r') as f:
             try:
-                global_sub_row_eval[1] = json.load(f)
+                str_key_eval = json.load(f)
+                for k,v in str_key_eval.items():
+                    global_sub_row_eval[1][int(k)] = v
             except ValueError:
                 global_sub_row_eval[1] = {}
 
@@ -54,7 +69,7 @@ class Gomoku(object):
         self.size_x = size_x or 15
         self.size_y = size_y or 15
         self.board = np.array(board_list).reshape(self.size_x, self.size_y)
-        #print(self.board)
+        # print(self.board)
         # self.board = board_list[:]
 
         if patterns is None:
@@ -71,7 +86,7 @@ class Gomoku(object):
             self.add_p(0b1011110, (10000, 10000000))  # _OOOO_
             self.add_p(0b10110110, (1500, 10000))  # _OO_OO_
             self.add_p(0b10111010, (20, 10000))  # _OOO_O_
-            self.add_p(0b101111, (150, 10000))  # _OOOOX
+            self.add_p(0b101111, (100, 10000))  # _OOOOX
             self.add_p(0b1011011, (20, 10000))  # _OO_OOX
             self.add_p(0b1011101, (20, 10000))  # _OOO_OX
             self.add_p(0b111111, (8000000, 8000000))  # XOOOOOX
@@ -264,10 +279,10 @@ class Gomoku(object):
     def count_rowy(self, cur, etype, row_arr):
         global global_row_cache
         global row_cache_hit
-        
+
         opponent = 2 if cur == 1 else 1
 
-        rowkey = tuple(row_arr) + (cur,etype)
+        rowkey = tuple(row_arr) + (cur, etype)
         # if rowkey in global_row_cache:
         #     #print("this too is useful")
         #     row_cache_hit += 1
@@ -293,7 +308,7 @@ class Gomoku(object):
 
         # dumb hashing, whatever
 
-        board_hash = tuple(map(tuple, self.board)) + (cur,etype)
+        board_hash = tuple(map(tuple, self.board)) + (cur, etype)
         if board_hash in global_board_cache:
             board_cache_hit += 1
             return global_board_cache[board_hash]
@@ -353,6 +368,7 @@ class Gomoku(object):
         global board_cache_hit
         global global_board_cache
         global row_cache_hit
+        global global_transposition
 
         # refresh...memory is actually an issue
         # it'll be great if I can save every table in memory...
@@ -360,13 +376,20 @@ class Gomoku(object):
         board_cache_hit = 0
         row_cache_hit = 0
         opponent = 2 if cur == 1 else 1
-        (v, x, y) = self.alphabeta(3, -9999999, 9999999, True, 2, 1)
+        (v, x, y) = self.alphabeta(1, -9999999,
+                                   9999999, True, 2, 1, global_transposition)
         if x == -1 and y == -1:  # lost already
             (v, x, y) = self.get_best_moves(
                 cur, opponent)[0]  # just do whatever
-        print("board cache hit",board_cache_hit)
-        print("row cache hit", row_cache_hit)
+        #print("board cache hit", board_cache_hit)
+        #print("row cache hit", row_cache_hit)
         return (x, y)
+
+    def get_next_move_multi(self, cur):
+        (x, y) = self.multiproc_alphabeta(1)
+        if x == -1 and y == -1:  # lost already
+            (v, x, y) = self.get_best_moves(2, 1)[0]  # just do whatever
+        return (x,y)
 
     def get_best_moves(self, cur, opponent):
         min_x = math.floor(self.size_x / 2)
@@ -408,26 +431,91 @@ class Gomoku(object):
                     # print("took ", time.process_time() - t)
 
         l = sorted(l, key=lambda x: x[0], reverse=True)
-        # print(l[:15])
-        return l[:10]
+        return l[:12]
 
-    def alphabeta(self, depth, alpha, beta, maximizing, cur, opponent):
-        global transposition
-        
-        board_hash = tuple(map(tuple, self.board)) + (maximizing,)
+    # initiate 4 processes to compute stuff
+    # lets see how it works on a Manager dict
+    # then I can probably try memcached or give up this approach
+    # -> just as slow, not sure whats the bottleneck
+    def multiproc_alphabeta(self, depth):
+        #lets kill memory
+        global transposition_tbl
+        #manager = multiprocessing.Manager()
+        #transposition_tbl = manager.dict()
+
+        cur = 2
+        opponent = 1
+        alpha = -9999999
+        beta = 9999999
+
+        best_moves = self.get_best_moves(cur, opponent)
+
+        process_num = 4
+        task_distribution = [0] * process_num
+        node_num = len(best_moves)
+        pid = 0
+        while node_num > 0:
+            task_distribution[pid] += 1
+            node_num -= 1
+            pid = (pid + 1) % process_num
+
+        print("distribution",task_distribution)
+
+        processes = []
+        start_idx = 0
+        for task_count in task_distribution:
+            print("working on",best_moves[start_idx:start_idx + task_count])
+            p = multiprocessing.Process(target=self.alphabeta, args=(depth,
+                alpha, beta, True, cur, opponent, transposition_tbl, best_moves[start_idx:start_idx + task_count]))
+            start_idx += task_count
+            processes.append(p)
+            p.start()
+
+        for p in processes:
+            p.join()
+
+        best_x = -1
+        best_y = -1
+        best_val = -9999999
+
+        for (s, x, y) in best_moves:
+            # print("white",x,y)
+            self.__put_p(x, y, cur)
+            # (v, b_x, b_y) = self.alphabeta(
+            #     depth - 1, alpha, beta, False, cur, opponent, transposition_tbl)
+            board_hash = tuple(map(tuple, self.board)) + (False,)
+            if board_hash in transposition_tbl:
+                (v, b_x, b_y) = transposition_tbl[board_hash]
+            else: 
+                self.__put_p(x, y, 0)
+                continue
+            print("result ",v,x,y)
+            if v > best_val:
+                best_x = x
+                best_y = y
+                best_val = v
+            self.__put_p(x, y, 0)
+
+        return (best_x, best_y)
+
+    def alphabeta(self, depth, alpha, beta, maximizing, cur, opponent, transposition, predefined_moves=None):
+
+        board_hash = tuple(map(tuple, self.board))
         if board_hash in transposition:
-            print("board evaluated")
+            #print("board evaluated")
             return transposition[board_hash]
 
         winner = self.check_winner()
         if winner != 0:
             print("termination detected")
-            ret = (self.count_boardx(cur, 0) - self.count_boardx(opponent, 1), -1, -1)
+            ret = (self.count_boardx(cur, 0) -
+                   self.count_boardx(opponent, 1), -1, -1)
             transposition[board_hash] = ret
             return ret
 
         if depth == 0:
-            ret = (self.count_boardx(cur, 0) - self.count_boardx(opponent, 1), -1, -1)
+            ret = (self.count_boardx(cur, 0) -
+                   self.count_boardx(opponent, 1), -1, -1)
             transposition[board_hash] = ret
             return ret
 
@@ -437,11 +525,15 @@ class Gomoku(object):
 
         if maximizing:
             best_val = -9999999
-            for (s, x, y) in self.get_best_moves(cur, opponent):
-                #print("white",x,y)
+            if predefined_moves is None:
+                best_moves = self.get_best_moves(cur, opponent)
+            else:
+                best_moves = predefined_moves
+            for (s, x, y) in best_moves:
+                # print("white",x,y)
                 self.__put_p(x, y, cur)
                 (v, b_x, b_y) = self.alphabeta(
-                    depth - 1, alpha, beta, False, cur, opponent)
+                    depth - 1, alpha, beta, False, cur, opponent, transposition)
                 if v > best_val:
                     best_x = x
                     best_y = y
@@ -449,14 +541,16 @@ class Gomoku(object):
                 self.__put_p(x, y, 0)
                 alpha = max(alpha, best_val)
                 if beta <= alpha:
-                    #print("pruned")
+                    # print("pruned")
                     break
         else:
             best_val = 9999999
+            best_moves = []
+
             for (s, x, y) in self.get_best_moves(opponent, cur):
                 self.__put_p(x, y, opponent)
                 (v, b_x, b_y) = self.alphabeta(
-                    depth - 1, alpha, beta, True, cur, opponent)
+                    depth - 1, alpha, beta, True, cur, opponent, transposition)
                 if v < best_val:
                     best_x = x
                     best_y = y
@@ -464,11 +558,11 @@ class Gomoku(object):
                 self.__put_p(x, y, 0)
                 beta = min(beta, best_val)
                 if beta <= alpha:
-                    #print("pruned")
+                    # print("pruned")
                     break
-            #print("black ",best_val,best_x,best_y)
 
         
+
         transposition[board_hash] = (best_val, best_x, best_y)
 
         return (best_val, best_x, best_y)

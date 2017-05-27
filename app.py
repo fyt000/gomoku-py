@@ -33,4 +33,4 @@ def get_next_move():
 
 if __name__ == "__main__":
     gomoku.precompute_gobal_sub_row()
-    app.run()
+    app.run(debug=True,use_reloader=False)
