@@ -1,5 +1,8 @@
 # gomoku-py
 
+The AI works fine but many implementations was incorrect. See https://github.com/three0s/gomoku-cpp and https://github.com/three0s/gomoku-frontend for less buggy version
+
+
 Development setup, for now
 
 1. Install pip and npm
